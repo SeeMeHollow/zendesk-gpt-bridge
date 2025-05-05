@@ -1,15 +1,15 @@
 from fastapi import FastAPI
-import requests
+import requests, os
 
 app = FastAPI()
 
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
-EMAIL = "adrian.norheim@nshift.com"
-API_TOKEN = "DjU3ZpYuLhFWKfMTGeei7fxJiamYu3XB5RAIVmG8"
+EMAIL = os.getenv("EMAIL")
+API_TOKEN = os.getenv("API_TOKEN")
 
 @app.get("/")
 def home():
-    return {"message": "Zendesk GPT bridge is live. Use /tickets to fetch tickets."}
+    return {"message": "✅ Zendesk GPT Bridge is running. Try /tickets"}
 
 @app.get("/tickets")
 def get_tickets():
