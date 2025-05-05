@@ -10,7 +10,7 @@ auth = (f"{EMAIL}/token", API_TOKEN)
 
 @app.get("/")
 def home():
-    return {"message": "✅ Zendesk GPT Bridge is live. Try /tickets, /search, or /summarize."}
+    return {"message": "✅ Zendesk GPT Bridge is live. Try /tickets, /search, /summarize, or /ticket/{ticket_id}/comments."}
 
 @app.get("/tickets")
 def get_tickets():
@@ -68,3 +68,29 @@ def summarize_tickets():
         summary += f"- {status.title()}: {count}\n"
 
     return {"summary": summary.strip()}
+
+@app.get("/ticket/{ticket_id}/comments")
+def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["all", "public", "internal"])):
+    url = f"{ZENDESK_DOMAIN}/api/v2/tickets/{ticket_id}/comments.json"
+    response = requests.get(url, auth=auth)
+
+    if response.status_code != 200:
+        return {"error": response.text}
+
+    comments = response.json().get("comments", [])
+    result = []
+
+    for c in comments:
+        if message_type == "public" and not c["public"]:
+            continue
+        if message_type == "internal" and c["public"]:
+            continue
+        result.append({
+            "comment_id": c["id"],
+            "author_id": c["author_id"],
+            "type": "public" if c["public"] else "internal_note",
+            "message": c["body"],
+            "created_at": c["created_at"]
+        })
+
+    return {"comments": result}
