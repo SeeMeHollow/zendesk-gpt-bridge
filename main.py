@@ -11,8 +11,7 @@ app = FastAPI()
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
 EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
-VALID_API_TOKEN = "zendesk-123-secret-token"
-auth = (f"{EMAIL}/token", API_TOKEN)
+
 
 # Models
 class Conversation(BaseModel):
