@@ -145,6 +145,7 @@ def get_evaluation_template():
         }
     }
 
+@app.post("/send-evaluation")
 def send_evaluation(payload: EvaluationPayload):
     headers = {'Content-Type': 'application/json'}
     try:
