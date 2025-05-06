@@ -1,4 +1,6 @@
 from fastapi import FastAPI, Query, Body
+from pydantic import BaseModel, Field, validator
+from typing import Dict, List, Union
 import requests, os, json
 
 app = FastAPI()
@@ -8,6 +10,36 @@ EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
 AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=RrHKHz0rgzCTX0Dwb6wFXp6ruVsZUEWc-jTWw8X8TuM"
 auth = (f"{EMAIL}/token", API_TOKEN)
+
+# Evaluation schema models
+class Evaluation(BaseModel):
+    Professional_Language_Tone_used: str = Field(..., alias="Professional Language/Tone used")
+    Correct_ticket_categorization_used: str = Field(..., alias="Correct ticket categorization used")
+    Correct_ticket_status_used: str = Field(..., alias="Correct ticket status used")
+    Correct_ticket_priority_used: str = Field(..., alias="Correct ticket priority used")
+    Verified_if_customer_had_any_other_tickets_related_to_the_same_case: str = Field(..., alias="Verified if customer had any other tickets related to the same case")
+    Captured_all_relevant_details_in_the_ticket: str = Field(..., alias="Captured all relevant details in the ticket")
+    Ensured_a_proper_understanding_of_the_customer_request: str = Field(..., alias="Ensured a proper understanding of the customer's request")
+    Owning_the_conversation_and_the_actions: str = Field(..., alias="Owning the conversation and the actions")
+    Followed_proper_procedure_to_resolve_the_ticket: str = Field(..., alias="Followed proper procedure to resolve the ticket")
+    Phone_follow_up_utilized_to_speed_up_the_process: str = Field(..., alias="Phone follow-up utilized to speed up the process")
+    Provided_timely_assistance: str = Field(..., alias="Provided timely assistance")
+    Confirmed_the_resolution_with_the_customer: str = Field(..., alias="Confirmed the resolution with the customer")
+    Where_applicable_correct_invoicing_process_was_used: str = Field(..., alias="Where applicable, correct invoicing process was used")
+    Displayed_satisfactory_technical_competence_in_handling_the_ticket: str = Field(..., alias="Displayed satisfactory technical competence in handling the ticket")
+
+    @validator('*')
+    def validate_yes_no(cls, v):
+        if v not in {"Yes", "No"}:
+            raise ValueError("Each field must be 'Yes' or 'No'")
+        return v
+
+class EvaluationPayload(BaseModel):
+    ticket_id: int
+    agent_email: str
+    evaluation: Evaluation
+    score: str
+    comments_for_improvement: Dict[str, Union[str, List[str]]]
 
 @app.get("/")
 def home():
@@ -114,15 +146,13 @@ def get_evaluation_template():
     }
 
 @app.post("/send-evaluation")
-def send_evaluation(payload: dict = Body(...)):
-    headers = {
-        'Content-Type': 'application/json'
-    }
+def send_evaluation(payload: EvaluationPayload):
+    headers = {'Content-Type': 'application/json'}
     try:
         response = requests.post(
             AZURE_LOGIC_APP_URL,
             headers=headers,
-            data=json.dumps(payload)
+            data=payload.json(by_alias=True)
         )
         return {
             "status_code": response.status_code,
