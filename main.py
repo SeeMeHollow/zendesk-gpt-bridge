@@ -145,14 +145,13 @@ def get_evaluation_template():
         }
     }
 
-@app.post("/send-evaluation")
 def send_evaluation(payload: EvaluationPayload):
     headers = {'Content-Type': 'application/json'}
     try:
         response = requests.post(
             AZURE_LOGIC_APP_URL,
             headers=headers,
-            data=payload.json(by_alias=True)
+            json=json.loads(payload.json(by_alias=True))  # Ensures correct dict format
         )
         return {
             "status_code": response.status_code,
