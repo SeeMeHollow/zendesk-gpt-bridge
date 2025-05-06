@@ -6,7 +6,7 @@ app = FastAPI()
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
 EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
-AZURE_LOGIC_APP_URL = os.getenv("AZURE_LOGIC_APP_URL")
+AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=RrHKHz0rgzCTX0Dwb6wFXp6ruVsZUEWc-jTWw8X8TuM"
 auth = (f"{EMAIL}/token", API_TOKEN)
 
 @app.get("/")
