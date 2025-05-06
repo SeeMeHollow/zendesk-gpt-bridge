@@ -13,33 +13,48 @@ auth = (f"{EMAIL}/token", API_TOKEN)
 
 # Evaluation schema models
 class Evaluation(BaseModel):
-    Professional_Language_Tone_used: str = Field(..., alias="Professional Language/Tone used")
-    Correct_ticket_categorization_used: str = Field(..., alias="Correct ticket categorization used")
-    Correct_ticket_status_used: str = Field(..., alias="Correct ticket status used")
-    Correct_ticket_priority_used: str = Field(..., alias="Correct ticket priority used")
-    Verified_if_customer_had_any_other_tickets_related_to_the_same_case: str = Field(..., alias="Verified if customer had any other tickets related to the same case")
-    Captured_all_relevant_details_in_the_ticket: str = Field(..., alias="Captured all relevant details in the ticket")
-    Ensured_a_proper_understanding_of_the_customer_request: str = Field(..., alias="Ensured a proper understanding of the customer's request")
-    Owning_the_conversation_and_the_actions: str = Field(..., alias="Owning the conversation and the actions")
-    Followed_proper_procedure_to_resolve_the_ticket: str = Field(..., alias="Followed proper procedure to resolve the ticket")
-    Phone_follow_up_utilized_to_speed_up_the_process: str = Field(..., alias="Phone follow-up utilized to speed up the process")
-    Provided_timely_assistance: str = Field(..., alias="Provided timely assistance")
-    Confirmed_the_resolution_with_the_customer: str = Field(..., alias="Confirmed the resolution with the customer")
-    Where_applicable_correct_invoicing_process_was_used: str = Field(..., alias="Where applicable, correct invoicing process was used")
-    Displayed_satisfactory_technical_competence_in_handling_the_ticket: str = Field(..., alias="Displayed satisfactory technical competence in handling the ticket")
+    language_tone: str
+    ticket_category: str
+    ticket_status: str
+    ticket_priority: str
+    checked_related_tickets: str
+    captured_details: str
+    understood_request: str
+    owned_actions: str
+    followed_procedure: str
+    phone_followup: str
+    timely_assistance: str
+    confirmed_resolution: str
+    invoicing_process: str
+    technical_competence: str
 
     @validator('*')
-    def validate_yes_no(cls, v):
-        if v not in {"Yes", "No"}:
-            raise ValueError("Each field must be 'Yes' or 'No'")
+    def validate_yes_no_na(cls, v):
+        if v not in {"Yes", "No", "N/A"}:
+            raise ValueError("Each field must be 'Yes', 'No', or 'N/A'")
         return v
 
 class EvaluationPayload(BaseModel):
     ticket_id: int
     agent_email: str
-    evaluation: Evaluation
+    language_tone: str
+    ticket_category: str
+    ticket_status: str
+    ticket_priority: str
+    checked_related_tickets: str
+    captured_details: str
+    understood_request: str
+    owned_actions: str
+    followed_procedure: str
+    phone_followup: str
+    timely_assistance: str
+    confirmed_resolution: str
+    invoicing_process: str
+    technical_competence: str
     score: str
-    comments_for_improvement: Dict[str, Union[str, List[str]]]
+    strengths: str
+    suggestion_1: str
+    suggestion_2: str
 
 @app.get("/")
 def home():
@@ -122,27 +137,24 @@ def get_evaluation_template():
     return {
         "ticket_id": None,
         "agent_email": "",
-        "evaluation": {
-            "Professional Language/Tone used": "",
-            "Correct ticket categorization used": "",
-            "Correct ticket status used": "",
-            "Correct ticket priority used": "",
-            "Verified if customer had any other tickets related to the same case": "",
-            "Captured all relevant details in the ticket": "",
-            "Ensured a proper understanding of the customer's request": "",
-            "Owning the conversation and the actions": "",
-            "Followed proper procedure to resolve the ticket": "",
-            "Phone follow-up utilized to speed up the process": "",
-            "Provided timely assistance": "",
-            "Confirmed the resolution with the customer": "",
-            "Where applicable, correct invoicing process was used": "",
-            "Displayed satisfactory technical competence in handling the ticket": ""
-        },
+        "language_tone": "",
+        "ticket_category": "",
+        "ticket_status": "",
+        "ticket_priority": "",
+        "checked_related_tickets": "",
+        "captured_details": "",
+        "understood_request": "",
+        "owned_actions": "",
+        "followed_procedure": "",
+        "phone_followup": "",
+        "timely_assistance": "",
+        "confirmed_resolution": "",
+        "invoicing_process": "",
+        "technical_competence": "",
         "score": "",
-        "comments_for_improvement": {
-            "strengths": "",
-            "suggestions": [""]
-        }
+        "strengths": "",
+        "suggestion_1": "",
+        "suggestion_2": ""
     }
 
 @app.post("/send-evaluation")
@@ -152,7 +164,7 @@ def send_evaluation(payload: EvaluationPayload):
         response = requests.post(
             AZURE_LOGIC_APP_URL,
             headers=headers,
-            json=json.loads(payload.json(by_alias=True))  # Ensures correct dict format
+            json=json.loads(payload.json())
         )
         return {
             "status_code": response.status_code,
