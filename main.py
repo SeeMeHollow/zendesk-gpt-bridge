@@ -1,17 +1,17 @@
-from fastapi import FastAPI, Query, Body
-from pydantic import BaseModel, Field, validator
-from typing import Dict, List, Union
+from fastapi import FastAPI, Query
+from pydantic import BaseModel, validator
 import requests, os, json
 
 app = FastAPI()
 
+# Zendesk credentials and base URLs
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
 EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
 AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=RrHKHz0rgzCTX0Dwb6wFXp6ruVsZUEWc-jTWw8X8TuM"
 auth = (f"{EMAIL}/token", API_TOKEN)
 
-# Evaluation schema models
+# Evaluation models
 class Evaluation(BaseModel):
     language_tone: str
     ticket_category: str
@@ -34,34 +34,20 @@ class Evaluation(BaseModel):
             raise ValueError("Each field must be 'Yes', 'No', or 'N/A'")
         return v
 
-class EvaluationPayload(BaseModel):
+class EvaluationPayload(Evaluation):
     ticket_id: int
     agent_email: str
-    language_tone: str
-    ticket_category: str
-    ticket_status: str
-    ticket_priority: str
-    checked_related_tickets: str
-    captured_details: str
-    understood_request: str
-    owned_actions: str
-    followed_procedure: str
-    phone_followup: str
-    timely_assistance: str
-    confirmed_resolution: str
-    invoicing_process: str
-    technical_competence: str
     score: str
     strengths: str
     suggestion_1: str
     suggestion_2: str
 
+# General endpoints
 @app.get("/")
 def home():
-    return {
-        "message": "✅ Zendesk GPT Bridge is live. Try /tickets, /search, /summarize, /ticket/{ticket_id}/comments, /send-evaluation/template or /send-evaluation."
-    }
+    return {"message": "✅ Zendesk GPT Bridge is live. Try /tickets, /search, /summarize, /ticket/{ticket_id}/comments, /helpcenter/articles, /helpcenter/search"}
 
+# Ticket endpoints
 @app.get("/tickets")
 def get_tickets():
     url = f"{ZENDESK_DOMAIN}/api/v2/tickets.json"
@@ -76,16 +62,14 @@ def get_tickets():
     return {"tickets": tickets}
 
 @app.get("/search")
-def search_tickets(query: str = Query(..., description="Search term for tickets")):
+def search_tickets(query: str = Query(...)):
     url = f"{ZENDESK_DOMAIN}/api/v2/search.json?query={query}+type:ticket"
     response = requests.get(url, auth=auth)
     if response.status_code != 200:
         return {"error": response.text}
     results = response.json().get("results", [])
-    tickets = [
-        {"id": t["id"], "subject": t["subject"], "status": t["status"]}
-        for t in results if t.get("result_type") == "ticket"
-    ]
+    tickets = [{"id": t["id"], "subject": t["subject"], "status": t["status"]}
+               for t in results if t.get("result_type") == "ticket"]
     return {"tickets": tickets}
 
 @app.get("/summarize")
@@ -132,30 +116,10 @@ def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["
         })
     return {"comments": result}
 
+# Evaluation endpoints
 @app.get("/send-evaluation/template")
 def get_evaluation_template():
-    return {
-        "ticket_id": None,
-        "agent_email": "",
-        "language_tone": "",
-        "ticket_category": "",
-        "ticket_status": "",
-        "ticket_priority": "",
-        "checked_related_tickets": "",
-        "captured_details": "",
-        "understood_request": "",
-        "owned_actions": "",
-        "followed_procedure": "",
-        "phone_followup": "",
-        "timely_assistance": "",
-        "confirmed_resolution": "",
-        "invoicing_process": "",
-        "technical_competence": "",
-        "score": "",
-        "strengths": "",
-        "suggestion_1": "",
-        "suggestion_2": ""
-    }
+    return EvaluationPayload.schema()["properties"]
 
 @app.post("/send-evaluation")
 def send_evaluation(payload: EvaluationPayload):
@@ -172,3 +136,28 @@ def send_evaluation(payload: EvaluationPayload):
         }
     except Exception as e:
         return {"error": str(e)}
+
+# NEW: Help Center integration (Zendesk Guide)
+@app.get("/helpcenter/articles")
+def get_helpcenter_articles(locale: str = "en-us"):
+    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles.json"
+    response = requests.get(url, auth=auth)
+    if response.status_code != 200:
+        return {"error": response.text}
+    return {"articles": response.json().get("articles", [])}
+
+@app.get("/helpcenter/article/{article_id}")
+def get_helpcenter_article(article_id: int):
+    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/articles/{article_id}.json"
+    response = requests.get(url, auth=auth)
+    if response.status_code != 200:
+        return {"error": response.text}
+    return {"article": response.json().get("article")}
+
+@app.get("/helpcenter/search")
+def search_helpcenter_articles(query: str, locale: str = "en-us"):
+    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles/search.json?query={query}"
+    response = requests.get(url, auth=auth)
+    if response.status_code != 200:
+        return {"error": response.text}
+    return {"results": response.json().get("results", [])}
