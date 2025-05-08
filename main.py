@@ -7,9 +7,12 @@ app = FastAPI()
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
 EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
-AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=RrHKHz0rgzCTX0Dwb6wFXp6ruVsZUEWc-jTWw8X8TuM"
+INTERNAL_SECTION_ID = os.getenv("INTERNAL_GUIDE_SECTION_ID")  # Set in .env
+AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?..."
+
 auth = (f"{EMAIL}/token", API_TOKEN)
 
+# Models
 class Evaluation(BaseModel):
     language_tone: str
     ticket_category: str
@@ -40,10 +43,12 @@ class EvaluationPayload(Evaluation):
     suggestion_1: str
     suggestion_2: str
 
+# General
 @app.get("/")
 def home():
-    return {"message": "✅ Zendesk GPT Bridge is live. Includes ticketing, help center search, and article suggestions."}
+    return {"message": "✅ Zendesk GPT Bridge with Help Center + Internal Guides integrated."}
 
+# Tickets
 @app.get("/tickets")
 def get_tickets():
     url = f"{ZENDESK_DOMAIN}/api/v2/tickets.json"
@@ -64,9 +69,8 @@ def search_tickets(query: str = Query(...)):
     if response.status_code != 200:
         return {"error": response.text}
     results = response.json().get("results", [])
-    tickets = [{"id": t["id"], "subject": t["subject"], "status": t["status"]}
-               for t in results if t.get("result_type") == "ticket"]
-    return {"tickets": tickets}
+    return {"tickets": [{"id": t["id"], "subject": t["subject"], "status": t["status"]}
+                        for t in results if t.get("result_type") == "ticket"]}
 
 @app.get("/summarize")
 def summarize_tickets():
@@ -81,14 +85,12 @@ def summarize_tickets():
         url = data.get("next_page")
     if not tickets:
         return {"summary": "No tickets found."}
-    summary = f"Total tickets: {len(tickets)}\n"
     status_count = {}
     for ticket in tickets:
         status = ticket["status"]
         status_count[status] = status_count.get(status, 0) + 1
-    for status, count in status_count.items():
-        summary += f"- {status.title()}: {count}\n"
-    return {"summary": summary.strip()}
+    return {"summary": f"Total tickets: {len(tickets)}\n" +
+                       "\n".join([f"- {k.title()}: {v}" for k, v in status_count.items()])}
 
 @app.get("/ticket/{ticket_id}/comments")
 def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["all", "public", "internal"])):
@@ -97,21 +99,15 @@ def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["
     if response.status_code != 200:
         return {"error": response.text}
     comments = response.json().get("comments", [])
-    result = []
-    for c in comments:
-        if message_type == "public" and not c["public"]:
-            continue
-        if message_type == "internal" and c["public"]:
-            continue
-        result.append({
-            "comment_id": c["id"],
-            "author_id": c["author_id"],
-            "type": "public" if c["public"] else "internal_note",
-            "message": c["body"],
-            "created_at": c["created_at"]
-        })
-    return {"comments": result}
+    return {"comments": [{
+        "comment_id": c["id"],
+        "author_id": c["author_id"],
+        "type": "public" if c["public"] else "internal_note",
+        "message": c["body"],
+        "created_at": c["created_at"]
+    } for c in comments if message_type == "all" or (message_type == "public") == c["public"]]}
 
+# Evaluation
 @app.get("/send-evaluation/template")
 def get_evaluation_template():
     return EvaluationPayload.schema()["properties"]
@@ -125,82 +121,71 @@ def send_evaluation(payload: EvaluationPayload):
             headers=headers,
             json=json.loads(payload.json())
         )
-        return {
-            "status_code": response.status_code,
-            "response": response.json() if response.headers.get("Content-Type", "").startswith("application/json") else response.text
-        }
+        return {"status_code": response.status_code,
+                "response": response.json() if "application/json" in response.headers.get("Content-Type", "") else response.text}
     except Exception as e:
         return {"error": str(e)}
 
-# Help Center endpoints
+# Help Center Articles
 @app.get("/helpcenter/articles")
 def get_helpcenter_articles(locale: str = "en-us"):
     url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles.json"
     response = requests.get(url, auth=auth)
-    if response.status_code != 200:
-        return {"error": response.text}
-    return {"articles": response.json().get("articles", [])}
+    return {"articles": response.json().get("articles", [])} if response.ok else {"error": response.text}
 
 @app.get("/helpcenter/article/{article_id}")
 def get_helpcenter_article(article_id: int):
     url = f"{ZENDESK_DOMAIN}/api/v2/help_center/articles/{article_id}.json"
     response = requests.get(url, auth=auth)
-    if response.status_code != 200:
-        return {"error": response.text}
-    return {"article": response.json().get("article")}
+    return {"article": response.json().get("article")} if response.ok else {"error": response.text}
 
 @app.get("/helpcenter/search")
 def search_helpcenter_articles(query: str, locale: str = "en-us"):
     url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles/search.json?query={query}"
     response = requests.get(url, auth=auth)
-    if response.status_code != 200:
-        return {"error": response.text}
-    return {"results": response.json().get("results", [])}
+    return {"results": response.json().get("results", [])} if response.ok else {"error": response.text}
 
 @app.get("/helpcenter/suggested-articles")
-def suggest_articles_for_ticket(query: str = Query(...), locale: str = "en-us"):
-    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles/search.json?query={query}"
-    response = requests.get(url, auth=auth)
-    if response.status_code != 200:
-        return {"error": response.text}
-    articles = response.json().get("results", [])
-    suggestions = []
-    for article in articles[:5]:
-        suggestions.append({
-            "title": article.get("title"),
-            "url": f"https://helpcenter.nshift.com/hc/{locale}/articles/{article.get('id')}",
-            "snippet": article.get("body", "")[:300] + "..." if article.get("body") else ""
-        })
+def suggest_articles_for_ticket(query: str = Query(...), locale: str = "en-us", include_internal: bool = False):
+    articles = []
+    if include_internal and INTERNAL_SECTION_ID:
+        url_internal = f"{ZENDESK_DOMAIN}/api/v2/help_center/sections/{INTERNAL_SECTION_ID}/articles.json"
+        resp = requests.get(url_internal, auth=auth)
+        if resp.ok:
+            articles.extend(resp.json().get("articles", []))
+    url_public = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles/search.json?query={query}"
+    resp_public = requests.get(url_public, auth=auth)
+    if resp_public.ok:
+        articles.extend(resp_public.json().get("results", []))
+    suggestions = [{
+        "title": a.get("title"),
+        "url": f"https://helpcenter.nshift.com/hc/{locale}/articles/{a.get('id')}",
+        "snippet": a.get("body", "")[:300] + "..." if a.get("body") else ""
+    } for a in articles[:5]]
     return {"suggestions": suggestions}
 
-# Webhook: auto-attach article suggestions to new tickets
+# Internal guide-only articles
+@app.get("/internal-guides/articles")
+def get_internal_guides(locale: str = "en-us"):
+    if not INTERNAL_SECTION_ID:
+        return {"error": "Missing INTERNAL_GUIDE_SECTION_ID"}
+    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/sections/{INTERNAL_SECTION_ID}/articles.json"
+    response = requests.get(url, auth=auth)
+    return {"internal_articles": response.json().get("articles", [])} if response.ok else {"error": response.text}
+
+# Webhook
 @app.post("/webhook/new-ticket")
 def new_ticket_listener(payload: dict = Body(...)):
     ticket_id = payload.get("ticket_id")
-    subject = payload.get("subject") or ""
+    subject = payload.get("subject", "")
     if not ticket_id or not subject:
         return {"error": "Missing ticket_id or subject"}
-
-    # Search Help Center
-    suggestions = suggest_articles_for_ticket(query=subject)["suggestions"]
+    suggestions = suggest_articles_for_ticket(query=subject, include_internal=True)["suggestions"]
     if not suggestions:
         return {"message": "No article suggestions found."}
-
-    # Prepare internal note
-    note = "**Suggested Help Center Articles:**\n\n"
-    for a in suggestions:
-        note += f"- [{a['title']}]({a['url']})\n"
-
-    comment_payload = {
-        "ticket": {
-            "comment": {
-                "body": note,
-                "public": False
-            }
-        }
-    }
-    url = f"{ZENDESK_DOMAIN}/api/v2/tickets/{ticket_id}.json"
-    response = requests.put(url, auth=auth, json=comment_payload)
-    if response.status_code != 200:
-        return {"error": response.text}
-    return {"message": "Internal note with article suggestions added.", "ticket_id": ticket_id}
+    note = "**Suggested Articles (Public + Internal):**\n" + "\n".join(
+        [f"- [{a['title']}]({a['url']})" for a in suggestions]
+    )
+    comment_payload = {"ticket": {"comment": {"body": note, "public": False}}}
+    resp = requests.put(f"{ZENDESK_DOMAIN}/api/v2/tickets/{ticket_id}.json", auth=auth, json=comment_payload)
+    return {"message": "Internal note added", "ticket_id": ticket_id} if resp.ok else {"error": resp.text}
