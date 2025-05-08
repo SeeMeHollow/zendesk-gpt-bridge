@@ -1,17 +1,15 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Body
 from pydantic import BaseModel, validator
 import requests, os, json
 
 app = FastAPI()
 
-# Zendesk credentials and base URLs
 ZENDESK_DOMAIN = "https://nshift.zendesk.com"
 EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
 AZURE_LOGIC_APP_URL = "https://prod-245.westeurope.logic.azure.com:443/workflows/0ebe20fd989b46e0b23fc6316c69c036/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=RrHKHz0rgzCTX0Dwb6wFXp6ruVsZUEWc-jTWw8X8TuM"
 auth = (f"{EMAIL}/token", API_TOKEN)
 
-# Evaluation models
 class Evaluation(BaseModel):
     language_tone: str
     ticket_category: str
@@ -42,12 +40,10 @@ class EvaluationPayload(Evaluation):
     suggestion_1: str
     suggestion_2: str
 
-# General endpoints
 @app.get("/")
 def home():
-    return {"message": "✅ Zendesk GPT Bridge is live. Try /tickets, /search, /summarize, /ticket/{ticket_id}/comments, /helpcenter/articles, /helpcenter/search"}
+    return {"message": "✅ Zendesk GPT Bridge is live. Includes ticketing, help center search, and article suggestions."}
 
-# Ticket endpoints
 @app.get("/tickets")
 def get_tickets():
     url = f"{ZENDESK_DOMAIN}/api/v2/tickets.json"
@@ -116,7 +112,6 @@ def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["
         })
     return {"comments": result}
 
-# Evaluation endpoints
 @app.get("/send-evaluation/template")
 def get_evaluation_template():
     return EvaluationPayload.schema()["properties"]
@@ -137,7 +132,7 @@ def send_evaluation(payload: EvaluationPayload):
     except Exception as e:
         return {"error": str(e)}
 
-# NEW: Help Center integration (Zendesk Guide)
+# Help Center endpoints
 @app.get("/helpcenter/articles")
 def get_helpcenter_articles(locale: str = "en-us"):
     url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles.json"
@@ -161,3 +156,51 @@ def search_helpcenter_articles(query: str, locale: str = "en-us"):
     if response.status_code != 200:
         return {"error": response.text}
     return {"results": response.json().get("results", [])}
+
+@app.get("/helpcenter/suggested-articles")
+def suggest_articles_for_ticket(query: str = Query(...), locale: str = "en-us"):
+    url = f"{ZENDESK_DOMAIN}/api/v2/help_center/{locale}/articles/search.json?query={query}"
+    response = requests.get(url, auth=auth)
+    if response.status_code != 200:
+        return {"error": response.text}
+    articles = response.json().get("results", [])
+    suggestions = []
+    for article in articles[:5]:
+        suggestions.append({
+            "title": article.get("title"),
+            "url": f"https://helpcenter.nshift.com/hc/{locale}/articles/{article.get('id')}",
+            "snippet": article.get("body", "")[:300] + "..." if article.get("body") else ""
+        })
+    return {"suggestions": suggestions}
+
+# Webhook: auto-attach article suggestions to new tickets
+@app.post("/webhook/new-ticket")
+def new_ticket_listener(payload: dict = Body(...)):
+    ticket_id = payload.get("ticket_id")
+    subject = payload.get("subject") or ""
+    if not ticket_id or not subject:
+        return {"error": "Missing ticket_id or subject"}
+
+    # Search Help Center
+    suggestions = suggest_articles_for_ticket(query=subject)["suggestions"]
+    if not suggestions:
+        return {"message": "No article suggestions found."}
+
+    # Prepare internal note
+    note = "**Suggested Help Center Articles:**\n\n"
+    for a in suggestions:
+        note += f"- [{a['title']}]({a['url']})\n"
+
+    comment_payload = {
+        "ticket": {
+            "comment": {
+                "body": note,
+                "public": False
+            }
+        }
+    }
+    url = f"{ZENDESK_DOMAIN}/api/v2/tickets/{ticket_id}.json"
+    response = requests.put(url, auth=auth, json=comment_payload)
+    if response.status_code != 200:
+        return {"error": response.text}
+    return {"message": "Internal note with article suggestions added.", "ticket_id": ticket_id}
