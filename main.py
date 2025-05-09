@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Query, Body, Depends, HTTPException, Security
 from fastapi.security.api_key import APIKeyHeader
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, validator
 from starlette.status import HTTP_403_FORBIDDEN
 import requests, os, json
@@ -106,17 +107,24 @@ def summarize_tickets():
 @app.get("/ticket/{ticket_id}/comments", dependencies=[Depends(get_api_key)])
 def get_ticket_comments(ticket_id: int, message_type: str = Query("all", enum=["all", "public", "internal"])):
     url = f"{ZENDESK_DOMAIN}/api/v2/tickets/{ticket_id}/comments.json"
-    response = requests.get(url, auth=auth)
-    if response.status_code != 200:
-        return {"error": response.text}
-    comments = response.json().get("comments", [])
-    return {"comments": [{
-        "comment_id": c["id"],
-        "author_id": c["author_id"],
-        "type": "public" if c["public"] else "internal_note",
-        "message": c["body"],
-        "created_at": c["created_at"]
-    } for c in comments if message_type == "all" or (message_type == "public") == c["public"]]}
+    try:
+        response = requests.get(url, auth=auth)
+        response.raise_for_status()
+        comments = response.json().get("comments", [])
+        data = [{
+            "comment_id": c["id"],
+            "author_id": c["author_id"],
+            "type": "public" if c["public"] else "internal_note",
+            "message": c["body"],
+            "created_at": c["created_at"]
+        } for c in comments if message_type == "all" or (message_type == "public") == c["public"]]
+        return JSONResponse(content={"comments": data})
+    except Exception as e:
+        return JSONResponse(content={
+            "error": str(e),
+            "url": url,
+            "status_code": response.status_code if 'response' in locals() else None
+        }, status_code=500)
 
 @app.get("/send-evaluation/template", dependencies=[Depends(get_api_key)])
 def get_evaluation_template():
