@@ -12,7 +12,7 @@ EMAIL = os.getenv("EMAIL")
 API_TOKEN = os.getenv("API_TOKEN")
 INTERNAL_SECTION_ID = os.getenv("INTERNAL_GUIDE_SECTION_ID")
 AZURE_LOGIC_APP_URL = os.getenv("AZURE_LOGIC_APP_URL")
-API_KEY = os.environ.get("X-API-Key")  # Secure API key from env
+API_KEY = "12345"
 auth = (f"{EMAIL}/token", API_TOKEN)
 
 # API key security setup
