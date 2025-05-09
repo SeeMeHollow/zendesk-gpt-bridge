@@ -16,7 +16,7 @@ API_KEY = os.getenv("X_API_KEY")
 auth = (f"{EMAIL}/token", API_TOKEN)
 
 # API key security setup
-API_KEY_NAME = "X_API_KEY"
+API_KEY_NAME = "X-API-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
 def get_api_key(api_key_header: str = Security(api_key_header)):
